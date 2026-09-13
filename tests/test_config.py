@@ -33,8 +33,10 @@ ocr = "never"
 def test_load_invalid_toml_returns_empty(tmp_path: Path):
     config_file = tmp_path / "invalid.toml"
     config_file.write_text("not valid toml [[[", encoding="utf-8")
-    result = load_toml_config(config_file)
-    assert result == {}
+    
+    with pytest.raises(ValueError) as exc_info:
+        load_toml_config(config_file)
+    assert "配置文件格式错误" in str(exc_info.value)
 
 
 def test_merge_config_sources_cli_overrides(tmp_path: Path):

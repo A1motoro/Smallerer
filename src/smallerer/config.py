@@ -67,14 +67,19 @@ def default_jobs() -> int:
 
 
 def load_toml_config(path: Path) -> dict:
-    """加载 TOML 配置文件，不存在返回空字典。"""
+    """加载 TOML 配置文件，不存在返回空字典，格式错误时抛出异常。
+    
+    spec §2: 失败可见。Bad TOML 必须明确报错，不能静默当空配置。
+    """
     if not path.is_file():
         return {}
     try:
         with path.open("rb") as f:
             return tomllib.load(f)
-    except Exception:
-        return {}
+    except tomllib.TOMLDecodeError as exc:
+        raise ValueError(f"配置文件格式错误（{path}）：{exc}") from exc
+    except Exception as exc:
+        raise RuntimeError(f"无法读取配置文件（{path}）：{exc}") from exc
 
 
 def merge_config_sources(root: Path, cli_overrides: dict) -> dict:
