@@ -9,7 +9,16 @@ from collections import Counter
 from pathlib import Path
 
 from . import application
-from .config import MANIFEST_NAME, META_DIR_NAME, MIRROR_SUFFIX, Config, Mode, OcrMode, default_jobs
+from .config import (
+    MANIFEST_NAME,
+    META_DIR_NAME,
+    MIRROR_SUFFIX,
+    Config,
+    Mode,
+    OcrMode,
+    default_jobs,
+    merge_config_sources,
+)
 from .manifest import Manifest
 from .model import Status
 
@@ -52,15 +61,15 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--in-place", action="store_true", help="文本贴在源文件旁边")
     build.add_argument("--out", type=Path, default=None, help="镜像根（仅 --mirror）")
     build.add_argument("--dry-run", action="store_true", help="只打印计划，不写盘")
-    build.add_argument("--ocr", choices=[m.value for m in OcrMode], default=OcrMode.AUTO.value)
-    build.add_argument("--jobs", type=int, default=0, help=f"并发进程数，默认 {default_jobs()}")
+    build.add_argument("--ocr", choices=[m.value for m in OcrMode], default=None)
+    build.add_argument("--jobs", type=int, default=None, help=f"并发进程数，默认 {default_jobs()}")
     build.add_argument("--force", action="store_true", help="忽略指纹，全部重跑")
     build.add_argument("--prune", action="store_true", help="删除孤儿产物")
-    build.add_argument("--no-images", dest="include_images", action="store_false", default=True)
+    build.add_argument("--no-images", dest="include_images", action="store_false", default=None)
     build.add_argument("--include-images", dest="include_images", action="store_true")
     build.add_argument("--keep-running-heads", action="store_true", help="保留页眉页脚")
-    build.add_argument("--max-bytes", type=_size, default=512 * 1024 * 1024)
-    build.add_argument("--max-ocr-pages", type=int, default=500)
+    build.add_argument("--max-bytes", type=_size, default=None)
+    build.add_argument("--max-ocr-pages", type=int, default=None)
     build.add_argument("--follow-symlinks", action="store_true")
 
     status = sub.add_parser("status", help="读 MANIFEST 汇报上次结果，不动盘")
@@ -71,21 +80,52 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _config_from_build(args: argparse.Namespace) -> Config:
+    """从命令行参数和配置文件构建 Config（spec §4 优先级）。
+    
+    只有显式设置的 CLI 参数才覆盖 TOML 配置。
+    """
     mode = Mode.MIRROR if args.mirror else Mode.IN_PLACE
+    
+    # 只传递显式设置的 CLI 参数（非 None/False）
+    cli_overrides = {}
+    if args.out is not None:
+        cli_overrides["out"] = args.out
+    if args.ocr is not None:
+        cli_overrides["ocr"] = args.ocr
+    if args.jobs is not None:
+        cli_overrides["jobs"] = args.jobs
+    if args.force:
+        cli_overrides["force"] = True
+    if args.prune:
+        cli_overrides["prune"] = True
+    if args.include_images is not None:
+        cli_overrides["include_images"] = args.include_images
+    if args.keep_running_heads:
+        cli_overrides["keep_running_heads"] = True
+    if args.follow_symlinks:
+        cli_overrides["follow_symlinks"] = True
+    if args.max_bytes is not None:
+        cli_overrides["max_bytes"] = args.max_bytes
+    if args.max_ocr_pages is not None:
+        cli_overrides["max_ocr_pages"] = args.max_ocr_pages
+    
+    merged = merge_config_sources(args.root.expanduser(), cli_overrides)
+    
+    # 应用内置默认值
     return Config(
         root=args.root,
         mode=mode,
-        out=args.out,
-        ocr=OcrMode(args.ocr),
-        jobs=args.jobs,
-        force=args.force,
-        prune=args.prune,
+        out=Path(merged["out"]) if merged.get("out") else None,
+        ocr=OcrMode(merged.get("ocr", "auto")),
+        jobs=int(merged.get("jobs", 0)),
+        force=bool(merged.get("force", False)),
+        prune=bool(merged.get("prune", False)),
         dry_run=args.dry_run,
-        include_images=args.include_images,
-        keep_running_heads=args.keep_running_heads,
-        follow_symlinks=args.follow_symlinks,
-        max_bytes=args.max_bytes,
-        max_ocr_pages=args.max_ocr_pages,
+        include_images=bool(merged.get("include_images", True)),
+        keep_running_heads=bool(merged.get("keep_running_heads", False)),
+        follow_symlinks=bool(merged.get("follow_symlinks", False)),
+        max_bytes=int(merged.get("max_bytes", 512 * 1024 * 1024)),
+        max_ocr_pages=int(merged.get("max_ocr_pages", 500)),
     ).normalized()
 
 
@@ -175,7 +215,20 @@ def main(argv: list[str] | None = None) -> int:
             print(f"不是目录：{args.root}", file=sys.stderr)
             return EXIT_USAGE
 
-        cfg = _config_from_build(args)
+        try:
+            cfg = _config_from_build(args)
+        except (ValueError, RuntimeError) as exc:
+            print(f"错误：{exc}", file=sys.stderr)
+            return EXIT_USAGE
+        
+        # spec §6.3 / §4: --ocr only 在没有后端时必须以退出码 2 失败
+        if cfg.ocr is OcrMode.ONLY:
+            from . import ocr
+            if ocr.get_backend() is None:
+                print(f"错误：{ocr.unavailable_reason()}", file=sys.stderr)
+                print("--ocr only 要求有可用的 OCR 后端", file=sys.stderr)
+                return EXIT_USAGE
+        
         if cfg.mode is Mode.MIRROR and cfg.out is not None:
             if cfg.root == cfg.out or cfg.root.is_relative_to(cfg.out):
                 print("镜像根不能是源目录本身或其祖先", file=sys.stderr)
