@@ -9,7 +9,16 @@ from collections import Counter
 from pathlib import Path
 
 from . import application
-from .config import MANIFEST_NAME, META_DIR_NAME, MIRROR_SUFFIX, Config, Mode, OcrMode, default_jobs
+from .config import (
+    MANIFEST_NAME,
+    META_DIR_NAME,
+    MIRROR_SUFFIX,
+    Config,
+    Mode,
+    OcrMode,
+    default_jobs,
+    merge_config_sources,
+)
 from .manifest import Manifest
 from .model import Status
 
@@ -71,21 +80,38 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _config_from_build(args: argparse.Namespace) -> Config:
+    """从命令行参数和配置文件构建 Config（spec §4 优先级）。"""
     mode = Mode.MIRROR if args.mirror else Mode.IN_PLACE
+    
+    cli_overrides = {
+        "out": args.out,
+        "ocr": args.ocr,
+        "jobs": args.jobs if args.jobs > 0 else None,
+        "force": args.force if args.force else None,
+        "prune": args.prune if args.prune else None,
+        "include_images": args.include_images if hasattr(args, "include_images") else None,
+        "keep_running_heads": args.keep_running_heads if args.keep_running_heads else None,
+        "follow_symlinks": args.follow_symlinks if args.follow_symlinks else None,
+        "max_bytes": args.max_bytes if hasattr(args, "max_bytes") else None,
+        "max_ocr_pages": args.max_ocr_pages if hasattr(args, "max_ocr_pages") else None,
+    }
+    
+    merged = merge_config_sources(args.root.expanduser(), cli_overrides)
+    
     return Config(
         root=args.root,
         mode=mode,
-        out=args.out,
-        ocr=OcrMode(args.ocr),
-        jobs=args.jobs,
-        force=args.force,
-        prune=args.prune,
+        out=Path(merged["out"]) if merged.get("out") else args.out,
+        ocr=OcrMode(merged.get("ocr", args.ocr)),
+        jobs=int(merged.get("jobs", args.jobs)),
+        force=bool(merged.get("force", args.force)),
+        prune=bool(merged.get("prune", args.prune)),
         dry_run=args.dry_run,
-        include_images=args.include_images,
-        keep_running_heads=args.keep_running_heads,
-        follow_symlinks=args.follow_symlinks,
-        max_bytes=args.max_bytes,
-        max_ocr_pages=args.max_ocr_pages,
+        include_images=bool(merged.get("include_images", args.include_images)),
+        keep_running_heads=bool(merged.get("keep_running_heads", args.keep_running_heads)),
+        follow_symlinks=bool(merged.get("follow_symlinks", args.follow_symlinks)),
+        max_bytes=int(merged.get("max_bytes", args.max_bytes)),
+        max_ocr_pages=int(merged.get("max_ocr_pages", args.max_ocr_pages)),
     ).normalized()
 
 

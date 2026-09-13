@@ -29,7 +29,7 @@ def test_dry_run_does_not_write(tmp_path: Path):
     root = copy_corpus(tmp_path)
     cfg = Config(root=root, mode=Mode.MIRROR, dry_run=True, ocr=OcrMode.NEVER).normalized()
     plan = make_plan(cfg)
-    assert len(plan.items) == 8
+    assert len(plan.items) == 10  # 包含所有 fixture 文件
     assert not cfg.out.exists()
 
 
@@ -102,4 +102,78 @@ def test_manifest_records_pipeline(tmp_path: Path):
     assert manifest.loaded
     assert manifest.mode == "mirror"
     assert "text.pdf" in manifest.files
+
+
+def test_mixed_pdf_identifies_pages_needing_ocr(tmp_path: Path):
+    """spec §5.5, §9.3: 混合 PDF 只 OCR 文字层 < 30 字符的页，其他页用文字层。"""
+    root = copy_corpus(tmp_path)
+    cfg = Config(root=root, mode=Mode.MIRROR, jobs=1, ocr=OcrMode.NEVER).normalized()
+    report = build(cfg)
+    
+    # 找到 mixed.pdf 的记录
+    mixed_record = next((r for r in report.records if r.rel == "mixed.pdf"), None)
+    assert mixed_record is not None
+    
+    # 检查文字层类型应该是 mixed（部分页有文字，部分页需要 OCR）
+    assert mixed_record.text_layer in ("mixed", "sparse", "rich")
+    
+    # 检查生成的文本文件
+    text_file = cfg.out / "text" / "mixed.pdf.md"
+    assert text_file.is_file()
+    content = text_file.read_text("utf-8")
+    
+    # 应该包含三个页标记
+    assert "## Page 1" in content
+    assert "## Page 2" in content
+    assert "## Page 3" in content
+
+
+def test_trivial_image_is_skipped(tmp_path: Path):
+    """spec §5.1: 小于 200×200 像素的图片应该被跳过。"""
+    root = copy_corpus(tmp_path)
+    cfg = Config(root=root, mode=Mode.MIRROR, jobs=1, ocr=OcrMode.NEVER).normalized()
+    report = build(cfg)
+    
+    # tiny.png 应该被跳过
+    tiny_record = next((r for r in report.records if r.rel == "tiny.png"), None)
+    assert tiny_record is not None
+    assert tiny_record.status == "skipped"
+    assert tiny_record.skip_reason == "trivial_image"
+    
+    # 不应该生成文本文件
+    text_file = cfg.out / "text" / "tiny.png.md"
+    assert not text_file.exists()
+
+
+def test_mirror_mode_copies_plaintext_files(tmp_path: Path):
+    """spec §6.2: 镜像模式下纯文本文件复制到 text/，保证整个镜像目录自足。"""
+    root = copy_corpus(tmp_path)
+    cfg = Config(root=root, mode=Mode.MIRROR, jobs=1, ocr=OcrMode.NEVER).normalized()
+    build(cfg)
+    
+    # 纯文本文件应该被复制到 text/ 目录
+    text_copy = cfg.out / "text" / "notes.txt"
+    assert text_copy.is_file()
+    assert text_copy.read_text("utf-8") == "Already plain text.\n"
+    
+    # 原文件不应该被修改
+    assert root.joinpath("notes.txt").read_text("utf-8") == "Already plain text.\n"
+
+
+def test_in_place_mode_does_not_copy_plaintext_files(tmp_path: Path):
+    """spec §6.2: 原地模式下纯文本文件只登记，不复制（原文件就在旁边）。"""
+    root = copy_corpus(tmp_path)
+    cfg = Config(root=root, mode=Mode.IN_PLACE, jobs=1, ocr=OcrMode.NEVER).normalized()
+    build(cfg)
+    
+    # 不应该生成 notes.txt.md
+    assert not root.joinpath("notes.txt.md").exists()
+    
+    # 原文件不应该被修改
+    assert root.joinpath("notes.txt").read_text("utf-8") == "Already plain text.\n"
+    
+    # 但应该在 MANIFEST 中登记
+    manifest = Manifest.load(cfg.out / "MANIFEST.json")
+    assert "notes.txt" in manifest.files
+    assert manifest.files["notes.txt"]["status"] == "registered"
 

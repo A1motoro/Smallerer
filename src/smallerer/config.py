@@ -5,9 +5,15 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
 from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 
 PIPELINE_VERSION = "0.1.0"
 SCHEMA_VERSION = 1
@@ -58,6 +64,47 @@ class OcrMode(str, Enum):
 
 def default_jobs() -> int:
     return min(8, os.cpu_count() or 1)
+
+
+def load_toml_config(path: Path) -> dict:
+    """加载 TOML 配置文件，不存在返回空字典。"""
+    if not path.is_file():
+        return {}
+    try:
+        with path.open("rb") as f:
+            return tomllib.load(f)
+    except Exception:
+        return {}
+
+
+def merge_config_sources(root: Path, cli_overrides: dict) -> dict:
+    """按优先级合并配置：命令行 > <root>/.smlr.toml > ~/.config/smlr/config.toml > 默认。
+    
+    spec §4: 配置优先级明确。配置文件全部可选，工具不主动创建。
+    """
+    result = {}
+    
+    # 最低优先级：全局配置
+    global_config = Path.home() / ".config" / "smlr" / "config.toml"
+    global_data = load_toml_config(global_config)
+    # 支持扁平配置或 [build] section
+    if "build" in global_data:
+        result.update(global_data["build"])
+    else:
+        result.update(global_data)
+    
+    # 中等优先级：项目配置
+    project_config = root / ".smlr.toml"
+    project_data = load_toml_config(project_config)
+    if "build" in project_data:
+        result.update(project_data["build"])
+    else:
+        result.update(project_data)
+    
+    # 最高优先级：命令行覆盖
+    result.update({k: v for k, v in cli_overrides.items() if v is not None})
+    
+    return result
 
 
 @dataclass(frozen=True)
