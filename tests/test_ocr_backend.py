@@ -45,9 +45,9 @@ def test_ocr_auto_degrades_gracefully_without_backend(tmp_path: Path):
     doc.showPage()
     doc.save()
     
-    # Mock 没有 OCR 后端
-    with patch("smallerer.ocr.get_backend", return_value=None):
-        with patch("smallerer.ocr.unavailable_reason", return_value="测试：OCR 不可用"):
+    # Mock 没有 OCR 后端（在 ocr.service 模块中，因为那是实际调用的地方）
+    with patch("smallerer.ocr.service.get_backend", return_value=None):
+        with patch("smallerer.ocr.service.unavailable_reason", return_value="测试：OCR 不可用"):
             cfg = Config(root=root, mode=Mode.MIRROR, jobs=1, ocr=OcrMode.AUTO).normalized()
             report = build(cfg)
             
@@ -69,9 +69,9 @@ def test_ocr_only_fails_without_backend(tmp_path: Path):
     root.mkdir()
     (root / "test.txt").write_text("dummy", encoding="utf-8")
     
-    # Mock 没有 OCR 后端
-    with patch("smallerer.ocr.get_backend", return_value=None):
-        with patch("smallerer.ocr.unavailable_reason", return_value="测试：OCR 不可用"):
+    # Mock 没有 OCR 后端（在 ocr.service 模块中）
+    with patch("smallerer.ocr.service.get_backend", return_value=None):
+        with patch("smallerer.ocr.service.unavailable_reason", return_value="测试：OCR 不可用"):
             cfg = Config(root=root, mode=Mode.MIRROR, jobs=1, ocr=OcrMode.ONLY).normalized()
             
             # 注意：当前实现在 ocr.service.apply 中抛出 ExtractError
