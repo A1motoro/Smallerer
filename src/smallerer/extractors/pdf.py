@@ -33,7 +33,7 @@ _SPARSE_CHARS = 200
 @contextlib.contextmanager
 def _suppress_pymupdf_stderr():
     """Suppress PyMuPDF's harmless layout warnings during successful operations.
-    
+
     PyMuPDF emits messages like "unexpected type", "layout analysis failed", etc.
     to stderr even when extraction succeeds. We capture stderr during extraction
     and only show it if an exception occurs (real failure).
