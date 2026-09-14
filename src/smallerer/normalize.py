@@ -66,8 +66,14 @@ def head_key(text: str) -> str:
     """Normalize running head for frequency counting.
 
     Digits → %d so "Page 3" and "Page 4" count as the same header.
+    Bare page numbers (digits-only after normalization) are not running heads.
     """
-    return _DIGIT_RUN_RE.sub("%d", " ".join(text.split()))
+    normalized = " ".join(text.split())
+    substituted = _DIGIT_RUN_RE.sub("%d", normalized)
+    # Reject bare page-number tokens: "%d" alone is not a running head
+    if substituted.strip() == "%d":
+        return ""
+    return substituted
 
 
 def strip_running_heads(pages: list[Page], keep: bool = False) -> list[str]:
@@ -98,7 +104,10 @@ def strip_running_heads(pages: list[Page], keep: bool = False) -> list[str]:
                 continue
             if use_coords and not _in_band(line, page):
                 continue
-            pages_by_key[head_key(body)].add(page.number)
+            key = head_key(body)
+            if not key:  # Skip bare page numbers
+                continue
+            pages_by_key[key].add(page.number)
 
     doomed = {key for key, seen in pages_by_key.items() if len(seen) >= threshold}
     if not doomed:
@@ -110,7 +119,8 @@ def strip_running_heads(pages: list[Page], keep: bool = False) -> list[str]:
             for line in page.lines
             if not (
                 line.text.strip()
-                and head_key(line.text.strip()) in doomed
+                and (key := head_key(line.text.strip()))
+                and key in doomed
                 and (not use_coords or _in_band(line, page))
             )
         ]

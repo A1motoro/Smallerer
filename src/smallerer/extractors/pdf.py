@@ -8,11 +8,17 @@ Strategy:
 - No "delete images and save a skinny PDF" — that loses captions (spec §6.1)
 
 Encrypted/corrupt PDFs: error/partial extraction, not silent failure.
+
+Library noise suppression: PyMuPDF emits harmless layout warnings to stderr
+during successful extractions. We suppress these while preserving real errors.
 """
 
 from __future__ import annotations
 
+import contextlib
+import io
 import re
+import sys
 from pathlib import Path
 
 import pymupdf
@@ -22,6 +28,23 @@ from ..model import Document, ExtractError, Kind, Line, Page, TextLayer
 
 _WS_RE = re.compile(r"\s+")
 _SPARSE_CHARS = 200
+
+
+@contextlib.contextmanager
+def _suppress_pymupdf_stderr():
+    """Suppress PyMuPDF's harmless layout warnings during successful operations.
+
+    PyMuPDF emits messages like "unexpected type", "layout analysis failed", etc.
+    to stderr even when extraction succeeds. We capture stderr during extraction
+    and only show it if an exception occurs (real failure).
+    """
+    original_stderr = sys.stderr
+    captured = io.StringIO()
+    try:
+        sys.stderr = captured
+        yield captured
+    finally:
+        sys.stderr = original_stderr
 
 
 def _nonspace(text: str) -> int:
@@ -135,7 +158,7 @@ def _classify(page_chars: list[int], threshold: int) -> TextLayer:
 def extract(path: Path, cfg: Config) -> Document:
     try:
         doc = pymupdf.open(path)
-    except Exception as exc:  # PyMuPDF 的异常类型随版本变动，统一按损坏处理
+    except Exception as exc:  # PyMuPDF exception types vary by version, treat all as corruption
         raise ExtractError("corrupt", f"PDF 无法打开：{exc}") from exc
 
     with doc:
@@ -154,14 +177,20 @@ def extract(path: Path, cfg: Config) -> Document:
         for index in range(doc.page_count):
             number = index + 1
             try:
-                page = doc.load_page(index)
-                tables, detected = _table_regions(page)
-                lines = _page_lines(page, tables)
-                height = page.rect.height
-                ratio = _image_ratio(page)
+                with _suppress_pymupdf_stderr() as captured:
+                    page = doc.load_page(index)
+                    tables, detected = _table_regions(page)
+                    lines = _page_lines(page, tables)
+                    height = page.rect.height
+                    ratio = _image_ratio(page)
             except Exception as exc:
                 broken += 1
-                out.warnings.append(f"第 {number} 页读取失败：{exc}")
+                # Show captured stderr for real failures
+                stderr_output = captured.getvalue() if 'captured' in locals() else ""
+                error_detail = f"第 {number} 页读取失败：{exc}"
+                if stderr_output.strip():
+                    error_detail += f"\nPyMuPDF stderr: {stderr_output.strip()}"
+                out.warnings.append(error_detail)
                 out.pages.append(Page(number=number, lines=[], height=None))
                 page_chars.append(0)
                 continue
