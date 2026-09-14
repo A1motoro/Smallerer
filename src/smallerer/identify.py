@@ -1,4 +1,13 @@
-"""类型识别：扩展名优先，magic bytes 校验，冲突时以 magic bytes 为准并告警（spec §5.2）。"""
+"""File type identification: extension first, magic bytes verify (spec §5.2).
+
+Strategy:
+1. Check extension → guess kind
+2. Read head bytes → sniff() actual format
+3. Mismatch → trust magic bytes, log warning (e.g. .txt renamed to .pdf)
+
+OOXML (PPTX/DOCX) are ZIP containers, requires content inspection.
+Unknown types → skip rather than guess (spec: don't assume plaintext).
+"""
 
 from __future__ import annotations
 
@@ -35,7 +44,10 @@ _HEIC_BRANDS = (b"heic", b"heix", b"hevc", b"mif1", b"msf1", b"heim", b"heis")
 
 
 def sniff(head: bytes) -> Kind | None:
-    """只认得出的才返回；认不出返回 None，交给扩展名。"""
+    """Sniff file format from magic bytes. Returns None if unrecognized.
+
+    Only confident matches return a Kind; ambiguous → None, defer to extension.
+    """
     if head.startswith(b"%PDF-"):
         return Kind.PDF
     if head.startswith(b"\x89PNG\r\n\x1a\n"):

@@ -1,4 +1,15 @@
-"""build / status 的编排（spec §4、§3.5）。"""
+"""Application orchestration for build and status commands (spec §4, §3.5).
+
+This module coordinates the document compilation pipeline:
+- Planning: scan source directory, classify files, detect changes
+- Execution: extract text, run OCR, write outputs
+- Reporting: manifest updates, orphan detection, progress callbacks
+
+Key invariants:
+- Idempotency via content hashing + pipeline version + config digest
+- Atomic writes with temp files + rename
+- Manifest records every generated file for orphan detection
+"""
 
 from __future__ import annotations
 
@@ -78,7 +89,14 @@ class Report:
 
 
 def _image_is_trivial(path: Path, size: int) -> bool:
-    """spec §5.1：小于 200×200 像素或小于 20 KB 的图片当装饰跳过。"""
+    """Check if image is too small to be document content (spec §5.1).
+
+    Trivial images (icons, decorations) are skipped:
+    - Size < 20 KB, or
+    - Dimensions < 200×200 pixels
+
+    Returns False on PIL errors rather than failing the build.
+    """
     if size < TRIVIAL_IMAGE_MIN_BYTES:
         return True
     try:
@@ -92,6 +110,17 @@ def _image_is_trivial(path: Path, size: int) -> bool:
 
 
 def _classify(candidate: Candidate, cfg: Config, layout: Layout, prior: dict | None) -> PlanItem:
+    """Classify a source file and determine its action (extract/register/skip).
+
+    Decision chain (first match wins):
+    1. Size > max_bytes → skip (too_large)
+    2. Kind unknown/unsupported → skip
+    3. Image: check include_images flag and trivial size → skip if needed
+    4. Plaintext: register (mirror mode copies to text/, in-place just records)
+    5. Otherwise: extract (PDF/PPTX/DOCX/image)
+
+    Target path set for files that produce sidecar .md files.
+    """
     kind, notes = identify(candidate.path)
     item = PlanItem(
         rel=str(candidate.rel),
@@ -131,6 +160,12 @@ def _classify(candidate: Candidate, cfg: Config, layout: Layout, prior: dict | N
 
 
 def _fingerprint_hit(item: PlanItem, cfg: Config) -> bool:
+    """Check if file unchanged since last build (idempotency via fingerprint).
+
+    Fingerprint = content_hash + pipeline_version + config digest.
+    Fast path: size + mtime_ns unchanged → skip rehash.
+    Returns False if any component changed or --force set.
+    """
     prior = item.prior
     if not prior or cfg.force:
         return False

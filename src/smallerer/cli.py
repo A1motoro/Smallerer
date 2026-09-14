@@ -80,13 +80,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _config_from_build(args: argparse.Namespace) -> Config:
-    """从命令行参数和配置文件构建 Config（spec §4 优先级）。
+    """Build Config from CLI args + TOML files (spec §4 precedence).
 
-    只有显式设置的 CLI 参数才覆盖 TOML 配置。
+    Critical: Only explicitly set CLI args override TOML config.
+    Argparse defaults (None/False) must not clobber TOML values.
+
+    This is why we filter cli_overrides: only non-None/True values are passed
+    to merge_config_sources, which then merges with TOML files and built-in defaults.
     """
     mode = Mode.MIRROR if args.mirror else Mode.IN_PLACE
 
-    # 只传递显式设置的 CLI 参数（非 None/False）
+    # Only pass explicitly set CLI args (not argparse defaults)
     cli_overrides = {}
     if args.out is not None:
         cli_overrides["out"] = args.out
