@@ -94,14 +94,14 @@ def pptx_fixture(path: Path) -> None:
 
 def mixed_pdf(path: Path) -> None:
     """混合 PDF：第1页有丰富文字层，第2页文字层空（需 OCR），第3页有文字层。
-    
+
     spec §5.5, §9.3: 只有文字层 < 30 字符的页走 OCR。
     """
     from io import BytesIO
     from PIL import Image
-    
+
     doc = canvas.Canvas(str(path))
-    
+
     # 第1页：丰富文字层
     doc.setFont("Helvetica-Bold", 14)
     doc.drawString(72, 760, "Page 1: Rich Text Layer")
@@ -109,14 +109,14 @@ def mixed_pdf(path: Path) -> None:
     for i in range(10):
         doc.drawString(72, 720 - i * 20, f"This is line {i + 1} with plenty of searchable text.")
     doc.showPage()
-    
+
     # 第2页：纯图片（模拟扫描件），无文字层
     image = Image.new("RGB", (600, 800), "white")
     buffer = BytesIO()
     image.save(buffer, "PNG")
     doc.drawInlineImage(Image.open(BytesIO(buffer.getvalue())), 72, 100, 450, 600)
     doc.showPage()
-    
+
     # 第3页：又有文字层
     doc.setFont("Helvetica-Bold", 14)
     doc.drawString(72, 760, "Page 3: Text Layer Again")
@@ -124,7 +124,7 @@ def mixed_pdf(path: Path) -> None:
     for i in range(8):
         doc.drawString(72, 720 - i * 20, f"More searchable content on line {i + 1}.")
     doc.showPage()
-    
+
     doc.save()
 
 

@@ -1,6 +1,12 @@
-"""单份文本文件的渲染（spec §3.3）。
+"""Render single sidecar text file with YAML front matter (spec §3.3).
 
-页锚点 `<!-- page:N -->` 是硬约定，供助手回答「这句出自哪」以及未来切 chunk 使用。
+Key requirements:
+- Page anchors `<!-- page:N -->` are a hard contract for LLM citation
+- OCR pages get `<!-- page:N ocr -->` marker for accuracy warning
+- YAML front matter must be valid (custom encoder to avoid PyYAML)
+- File always gets `pipeline_version` for generated-file detection (spec §3.5)
+
+Used for chunking and "which page is this from" queries.
 """
 
 from __future__ import annotations
@@ -12,6 +18,11 @@ from ..manifest import Record, now_iso
 
 
 def _scalar(value) -> str:
+    """Custom YAML scalar encoder to avoid PyYAML dependency.
+
+    Handles bool/int/float/str. Quotes strings with YAML special chars
+    or leading/trailing whitespace.
+    """
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, (int, float)):

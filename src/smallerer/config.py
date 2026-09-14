@@ -1,4 +1,12 @@
-"""配置与全局常量。所有阈值都来自 spec，改这里就是改 spec。"""
+"""Configuration loading and global constants.
+
+All thresholds are spec-defined. Changing values here means changing spec.
+
+Config precedence (spec §4):
+  CLI args > <root>/.smlr.toml > ~/.config/smlr/config.toml > defaults
+
+Bad TOML must fail visibly (spec §2), not silently degrade to defaults.
+"""
 
 from __future__ import annotations
 
@@ -67,9 +75,10 @@ def default_jobs() -> int:
 
 
 def load_toml_config(path: Path) -> dict:
-    """加载 TOML 配置文件，不存在返回空字典，格式错误时抛出异常。
-    
-    spec §2: 失败可见。Bad TOML 必须明确报错，不能静默当空配置。
+    """Load TOML config file. Returns {} if missing, raises on bad TOML.
+
+    spec §2: Failures must be visible. Bad TOML must error, not silently
+    degrade to defaults. Parse errors surface to CLI with exit code 2.
     """
     if not path.is_file():
         return {}
@@ -83,12 +92,19 @@ def load_toml_config(path: Path) -> dict:
 
 
 def merge_config_sources(root: Path, cli_overrides: dict) -> dict:
-    """按优先级合并配置：命令行 > <root>/.smlr.toml > ~/.config/smlr/config.toml > 默认。
-    
-    spec §4: 配置优先级明确。配置文件全部可选，工具不主动创建。
+    """Merge config sources by precedence (spec §4).
+
+    Precedence (highest first):
+      1. cli_overrides (only explicitly set CLI args, not argparse defaults)
+      2. <root>/.smlr.toml
+      3. ~/.config/smlr/config.toml
+      4. Built-in defaults (applied by caller)
+
+    Config files are optional; tool never creates them. Supports both
+    flat keys and [build] section for compatibility.
     """
     result = {}
-    
+
     # 最低优先级：全局配置
     global_config = Path.home() / ".config" / "smlr" / "config.toml"
     global_data = load_toml_config(global_config)
@@ -97,7 +113,7 @@ def merge_config_sources(root: Path, cli_overrides: dict) -> dict:
         result.update(global_data["build"])
     else:
         result.update(global_data)
-    
+
     # 中等优先级：项目配置
     project_config = root / ".smlr.toml"
     project_data = load_toml_config(project_config)
@@ -105,10 +121,10 @@ def merge_config_sources(root: Path, cli_overrides: dict) -> dict:
         result.update(project_data["build"])
     else:
         result.update(project_data)
-    
+
     # 最高优先级：命令行覆盖
     result.update({k: v for k, v in cli_overrides.items() if v is not None})
-    
+
     return result
 
 

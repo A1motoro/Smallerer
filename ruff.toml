@@ -1,0 +1,18 @@
+# Ruff 配置
+target-version = "py311"
+
+[lint]
+# 只启用最重要的检查：错误、潜在 bug、未使用的导入
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+]
+
+# 忽略一些过于严格的规则
+ignore = [
+    "E501",  # 行过长（文档字符串和注释可能很长）
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["F401", "F811"]  # 测试文件中允许未使用的导入和重定义

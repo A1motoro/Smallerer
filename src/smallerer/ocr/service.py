@@ -1,4 +1,12 @@
-"""页级 OCR 编排：光栅化、缓存、断点、替换空文字层（spec §5.5）。"""
+"""Page-level OCR orchestration: rasterization, caching, resume (spec §5.5).
+
+Key behaviors:
+- Per-page decision: OCR only pages with text_layer < 30 chars (ocr_page_threshold)
+- Page-level cache: content_hash + page_no + ocr config digest
+- Graceful degradation: no backend → warning + skip (unless --ocr only)
+- Interrupt resume: cache persists across runs, only missing pages re-OCR
+- Max pixels: 4000×4000 per page to avoid Vision API limits
+"""
 
 from __future__ import annotations
 
@@ -8,7 +16,7 @@ from pathlib import Path
 from ..config import CACHE_DIR_NAME, Config, OcrMode
 from ..model import Document, ExtractError, Kind, Line
 from . import get_backend, unavailable_reason
-from .base import OcrBackend, TextBlock
+from .base import OcrBackend
 from .cache import OcrCache
 
 MAX_PIXELS = 4000
@@ -21,6 +29,16 @@ def apply(
     cfg: Config,
     content_hash: str,
 ) -> None:
+    """Apply OCR to pages needing it, with caching and backend availability checks.
+
+    Backend unavailability handling (spec §6.3):
+    - --ocr only + no backend → ExtractError (exit 2)
+    - --ocr auto + no backend → warning + graceful skip
+    - macOS: Vision available
+    - Linux/Windows: no backend yet, degrades to never
+
+    Cache key: content_hash + page_no + digest(ocr_dpi, max_pixels, backend)
+    """
     pages = doc.pages_needing_ocr
     if not pages or cfg.ocr is OcrMode.NEVER:
         return

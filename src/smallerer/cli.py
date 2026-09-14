@@ -80,13 +80,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _config_from_build(args: argparse.Namespace) -> Config:
-    """从命令行参数和配置文件构建 Config（spec §4 优先级）。
-    
-    只有显式设置的 CLI 参数才覆盖 TOML 配置。
+    """Build Config from CLI args + TOML files (spec §4 precedence).
+
+    Critical: Only explicitly set CLI args override TOML config.
+    Argparse defaults (None/False) must not clobber TOML values.
+
+    This is why we filter cli_overrides: only non-None/True values are passed
+    to merge_config_sources, which then merges with TOML files and built-in defaults.
     """
     mode = Mode.MIRROR if args.mirror else Mode.IN_PLACE
-    
-    # 只传递显式设置的 CLI 参数（非 None/False）
+
+    # Only pass explicitly set CLI args (not argparse defaults)
     cli_overrides = {}
     if args.out is not None:
         cli_overrides["out"] = args.out
@@ -108,9 +112,9 @@ def _config_from_build(args: argparse.Namespace) -> Config:
         cli_overrides["max_bytes"] = args.max_bytes
     if args.max_ocr_pages is not None:
         cli_overrides["max_ocr_pages"] = args.max_ocr_pages
-    
+
     merged = merge_config_sources(args.root.expanduser(), cli_overrides)
-    
+
     # 应用内置默认值
     return Config(
         root=args.root,
@@ -220,7 +224,7 @@ def main(argv: list[str] | None = None) -> int:
         except (ValueError, RuntimeError) as exc:
             print(f"错误：{exc}", file=sys.stderr)
             return EXIT_USAGE
-        
+
         # spec §6.3 / §4: --ocr only 在没有后端时必须以退出码 2 失败
         if cfg.ocr is OcrMode.ONLY:
             from . import ocr
@@ -228,7 +232,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"错误：{ocr.unavailable_reason()}", file=sys.stderr)
                 print("--ocr only 要求有可用的 OCR 后端", file=sys.stderr)
                 return EXIT_USAGE
-        
+
         if cfg.mode is Mode.MIRROR and cfg.out is not None:
             if cfg.root == cfg.out or cfg.root.is_relative_to(cfg.out):
                 print("镜像根不能是源目录本身或其祖先", file=sys.stderr)

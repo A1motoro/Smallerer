@@ -1,4 +1,15 @@
-"""遍历与忽略规则（spec §5.1）。"""
+"""Directory traversal and ignore rules (spec §5.1).
+
+Default skips (spec):
+- Output directories (mirror root, in-place _ai-context/)
+- Tool artifacts (generated .md files, manifest, cache)
+- Dotfiles/dotdirs (except when explicitly included in .smlrignore)
+- Common dev dirs: node_modules, __pycache__, .venv, .git
+- Symlinks (unless --follow-symlinks)
+
+.smlrignore: gitignore syntax (via pathspec library).
+Does NOT read .gitignore (different semantics).
+"""
 
 from __future__ import annotations
 

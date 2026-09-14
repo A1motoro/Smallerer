@@ -1,4 +1,17 @@
-"""质检（spec §5.7）。阈值全部是确定数值，判据不许出现形容词。"""
+"""Quality assessment with deterministic thresholds (spec §5.7).
+
+All thresholds are exact numbers. Criteria must be deterministic, no adjectives.
+
+Quality levels:
+- ok: default if no other criteria hit
+- low: median_chars_per_page < 100 OR total_chars < 200
+- empty: total_nonspace_chars < 50
+- garbled: U+FFFD > 1%, PUA/unprintable > 5%, OR avg_token_len < 1.5 (Latin-heavy)
+- failed: extraction threw error (encrypted/corrupt/missing-deps)
+
+Garbled detection targets PDF CID font mapping failures (common symptom:
+per-letter splits → "l i k e   t h i s" → avg token length < 1.5).
+"""
 
 from __future__ import annotations
 
@@ -36,6 +49,16 @@ def _nonspace(text: str) -> int:
 
 
 def garbled_reasons(text: str) -> list[str]:
+    """Check garbled text indicators (spec §5.7 criteria).
+
+    Three independent checks:
+    1. U+FFFD (replacement char) > 1% → bad encoding
+    2. PUA (Private Use Area) / unassigned > 5% → CID font mapping failure
+    3. Latin-heavy text with avg_token_len < 1.5 → per-letter split ("l i k e")
+
+    Returns list of human-readable reasons (Chinese for user-facing output).
+    Empty list → not garbled.
+    """
     total = len(text)
     if total == 0:
         return []

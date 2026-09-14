@@ -1,7 +1,14 @@
-"""生成物身份判定（spec §3.5 第 1、2 条）。
+"""Generated-file detection (spec §3.5 rules 1 & 2).
 
-一旦允许原地生成，「哪些文件是我们造的」就必须有可靠答案，否则第二轮会把自己的
-产物当输入。第一判据是 MANIFEST 登记；这里实现的是 MANIFEST 丢失时的前置块兜底。
+Critical for in-place mode: must reliably identify our own outputs, or 2nd run
+will ingest them as inputs.
+
+Two-layer detection (fallback chain):
+1. MANIFEST registry (primary, authoritative)
+2. YAML front matter with `pipeline_version:` field (fallback if manifest lost)
+
+File must pass BOTH name check (double suffix .ext.md) AND front matter check
+to be considered generated. Conservative: ambiguous → assume user file.
 """
 
 from __future__ import annotations
@@ -12,12 +19,23 @@ _PROBE_BYTES = 4096
 
 
 def looks_like_artifact_name(path: Path) -> bool:
-    """命名规则是源文件全名 + '.md'，所以生成物一定是双后缀。"""
+    """Check if filename matches artifact naming (source.ext + .md).
+
+    Naming spec §3.2: preserve full source name then append .md
+    → artifacts always have double suffix (.pdf.md, .docx.md, etc.)
+    """
     return path.suffix.lower() == ".md" and Path(path.stem).suffix != ""
 
 
 def has_pipeline_front_matter(path: Path) -> bool:
-    """开头的 YAML 前置块里有 pipeline_version 就认作本工具生成物。"""
+    """Check if file has YAML front matter with pipeline_version field.
+
+    Probe first 4KB (front matter should always fit). If front matter is
+    longer than probe (shouldn't happen), conservatively return False.
+
+    Only accepts files starting with '---' and containing 'pipeline_version:'
+    before the closing '---'. This detects spec §3.3 sidecar files.
+    """
     try:
         with path.open("rb") as fh:
             head = fh.read(_PROBE_BYTES)
@@ -37,7 +55,7 @@ def has_pipeline_front_matter(path: Path) -> bool:
             return False
         if line.startswith("pipeline_version:"):
             return True
-    # 前置块比探测长度还长的情况不该发生，保守判否
+    # Front matter longer than probe → shouldn't happen, conservatively False
     return False
 
 

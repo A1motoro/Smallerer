@@ -1,4 +1,14 @@
-"""PDF extractor（spec §6.1）。主战场。"""
+"""PDF text extraction with table handling (spec §6.1). Main battlefield.
+
+Strategy:
+- Text layer: PyMuPDF text extraction (dict mode for coordinates)
+- Tables: PyMuPDF find_tables → Markdown if confidence OK (≥2 rows, ≥2 cols, ≤50% empty)
+- Low-confidence tables: keep raw text, set has_tables=true, add warning (spec §7)
+- Pages with < 30 chars → mark for OCR (spec §5.5)
+- No "delete images and save a skinny PDF" — that loses captions (spec §6.1)
+
+Encrypted/corrupt PDFs: error/partial extraction, not silent failure.
+"""
 
 from __future__ import annotations
 
@@ -19,10 +29,13 @@ def _nonspace(text: str) -> int:
 
 
 def _table_regions(page: "pymupdf.Page") -> tuple[list[tuple[pymupdf.Rect, list[str]]], bool]:
-    """返回 (可用的表格区域, 是否检测到表格)。
+    """Extract tables as Markdown. Returns (accepted_tables, any_detected).
 
-    PyMuPDF 不给置信度，用「至少 2 行 2 列、空单元不过半」当接受判据；不达标的
-    表格保留原始文本行，只置 has_tables 并告警（spec §7）。
+    Confidence heuristic (PyMuPDF doesn't provide confidence scores):
+    - Accept: ≥2 rows, ≥2 columns, >50% cells non-empty
+    - Reject: keep as raw text lines, set has_tables=true, warn (spec §7)
+
+    Returns detected=True even if none accepted (signals presence).
     """
     try:
         finder = page.find_tables()
@@ -53,6 +66,17 @@ def _table_regions(page: "pymupdf.Page") -> tuple[list[tuple[pymupdf.Rect, list[
 
 
 def _page_lines(page: "pymupdf.Page", tables: list[tuple[pymupdf.Rect, list[str]]]) -> list[Line]:
+    """Merge text lines and table Markdown in reading order.
+
+    Logic:
+    1. Extract all text lines (type=0 blocks), keep y0/y1 coords for band detection
+    2. Skip lines whose midpoint falls inside table bounding box (avoid duplication)
+    3. Insert table Markdown rows at table's y0 position
+    4. Sort by (rounded_y0, x0) for reading order
+
+    Tables get blank Line before/after for separation. Offset by 1e-6 ensures
+    table rows stay together even if multiple tables at same y0.
+    """
     data = page.get_text("dict")
     items: list[tuple[float, float, Line]] = []
     for block in data.get("blocks", []):

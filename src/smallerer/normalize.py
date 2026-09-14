@@ -1,6 +1,17 @@
-"""归一化（spec §5.6）。
+"""Text normalization for CJK/Latin mixed-layout documents (spec §5.6).
 
-中英混排是这一步的主要难点，规则必须确定、可测、可整条替换。
+CJK/Latin mixed line wrapping is the main challenge here. Rules must be:
+- Deterministic (same input → same output)
+- Testable (covered by test_normalize.py)
+- Replaceable as a whole if needed
+
+Steps (spec §5.6 order):
+1. Clean: UTF-8, LF, strip unprintable (keep PUA for garbled detection)
+2. Merge soft wraps: CJK/Latin-aware line joining
+3. No forced spaces between CJK and Latin (that's rewriting, not normalizing)
+4. Strip running headers/footers (repeated across pages in top/bottom 8% band)
+
+Removed running heads are recorded in YAML front matter for visibility.
 """
 
 from __future__ import annotations
@@ -34,27 +45,44 @@ _MATH_SYMBOLS = set("∑∫∮√∂∇±≤≥≠≈≡∞αβγδεθλμπρ�
 
 
 def clean_text(raw: str) -> str:
-    """第 1 步：统一编码与换行，清掉不可见噪声。"""
+    """Step 1: Normalize encoding and strip invisible noise.
+
+    - Unify line endings to LF
+    - Remove soft hyphens (U+00AD) and normalize various spaces
+    - Strip control chars EXCEPT PUA (Private Use Area)
+      Reason: PUA signals garbled CID font mappings (spec §5.7).
+              Must keep them visible for quality detection.
+    """
     text = raw.replace("\r\n", "\n").replace("\r", "\n")
-    text = text.replace("\u00ad", "")  # 软连字符
+    text = text.replace("\u00ad", "")  # soft hyphen
     text = text.replace("\u00a0", " ").replace("\u2007", " ").replace("\u202f", " ")
-    # 私用区字符（Co）刻意保留：它们正是 §5.7 判定 garbled 的信号，清掉就看不见了
+    # Keep PUA (Co) for garbled detection; strip other control categories
     return "".join(
         ch for ch in text if ch in "\n\t" or unicodedata.category(ch) not in {"Cc", "Cf", "Cs"}
     )
 
 
 def head_key(text: str) -> str:
-    """页眉页脚频次统计用的键：数字归一，这样「第 3 页」「第 4 页」算同一条。"""
+    """Normalize running head for frequency counting.
+
+    Digits → %d so "Page 3" and "Page 4" count as the same header.
+    """
     return _DIGIT_RUN_RE.sub("%d", " ".join(text.split()))
 
 
 def strip_running_heads(pages: list[Page], keep: bool = False) -> list[str]:
-    """第 4 步：跨页重复的页眉页脚去重，被移除的内容必须可见。"""
+    """Step 4: Remove repeated headers/footers, return list of removed text.
+
+    Logic:
+    - With coords: lines in top/bottom 8% band, repeated >= 3 pages
+    - No coords (OCR): pure frequency, repeated >= max(3, 50% of pages)
+
+    Removed content is returned for YAML front matter (visibility requirement).
+    """
     if keep or len(pages) < RUNNING_HEAD_MIN_REPEATS:
         return []
 
-    with_coords = [p for p in pages if p.height and any(l.y0 is not None for l in p.lines)]
+    with_coords = [p for p in pages if p.height and any(line.y0 is not None for line in p.lines)]
     use_coords = len(with_coords) == len(pages)
     threshold = (
         RUNNING_HEAD_MIN_REPEATS
@@ -98,8 +126,19 @@ def _in_band(line: Line, page: Page) -> bool:
 
 
 def merge_soft_wraps(lines: list[str]) -> str:
-    """第 2 步：软换行合并。规则顺序即 spec 中的判断顺序。"""
-    lengths = [len(l.strip()) for l in lines if l.strip()]
+    """Step 2: Merge soft line wraps. Rule order follows spec §5.6.
+
+    Decision chain (first match wins):
+    1. Prev ends with sentence punctuation → keep newline
+    2. Prev shorter than 60% of median line length → keep (likely heading/list)
+    3. Both ends CJK → join with no space
+    4. Prev ends "-" + Latin, cur starts lowercase Latin → dehyphenate and join
+    5. Prev ends Latin/comma, cur starts lowercase Latin → join with space
+    6. Otherwise → keep newline
+
+    Short_cut = median * 0.6 identifies headings/list items.
+    """
+    lengths = [len(line.strip()) for line in lines if line.strip()]
     median = statistics.median(lengths) if lengths else 0.0
     short_cut = median * SHORT_LINE_RATIO
 
@@ -122,7 +161,10 @@ def merge_soft_wraps(lines: list[str]) -> str:
 
 
 def _join(prev: str, cur: str, short_cut: float) -> str | None:
-    """返回合并后的行，或 None 表示保留换行。"""
+    """Try to join two lines. Returns merged text or None to keep newline.
+
+    Implements spec §5.6 soft-wrap merging rules (see merge_soft_wraps docstring).
+    """
     tail, head = prev[-1], cur[0]
 
     if tail in _SENTENCE_END:

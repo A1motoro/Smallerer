@@ -1,4 +1,14 @@
-"""MANIFEST.json：幂等键、状态、生成物登记（spec §3.5、§5.3、§5.8）。"""
+"""MANIFEST.json: idempotency, state, artifact tracking (spec §3.5, §5.3, §5.8).
+
+Key responsibilities:
+1. Idempotency: store content_hash + pipeline_version + config_digest per file
+2. Artifact tracking: list every generated file for orphan detection (spec §3.5)
+3. Mode change detection: warn if switching mirror ↔ in-place
+4. Incremental updates: append batch after each write, atomic replace at end
+
+Fast-path check: size + mtime_ns unchanged → skip hash (spec §5.3).
+Manifest persists between runs for resume and orphan cleanup.
+"""
 
 from __future__ import annotations
 
