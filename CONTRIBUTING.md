@@ -19,14 +19,18 @@ python3 -m venv .venv
 
 ## 测试
 
-所有更改必须包含测试。当前测试覆盖：
+所有更改必须包含测试。当前测试覆盖（44 个测试）：
 
-- `tests/test_application.py` - 端到端应用逻辑
-- `tests/test_cli.py` - 命令行接口
-- `tests/test_config.py` - 配置文件处理
-- `tests/test_normalize.py` - 文本归一化
-- `tests/test_ocr_*.py` - OCR 功能
-- `tests/test_quality.py` - 质检逻辑
+- `tests/test_application.py` (10 tests) - 端到端应用逻辑、幂等性、孤儿检测
+- `tests/test_cli.py` (3 tests) - 命令行接口、OCR 后端检查、TOML 配置
+- `tests/test_concurrency.py` (5 tests) - 并发处理、进程池错误处理
+- `tests/test_config.py` (6 tests) - 配置文件处理、优先级、合并逻辑
+- `tests/test_index_sharding.py` (2 tests) - INDEX 分片（500+ 文件）
+- `tests/test_normalize.py` (4 tests) - 文本归一化、软换行合并
+- `tests/test_ocr_backend.py` (3 tests) - OCR 后端接口
+- `tests/test_ocr_cache.py` (5 tests) - OCR 缓存与断点续传
+- `tests/test_paths.py` (2 tests) - 路径解析、模式切换
+- `tests/test_quality.py` (4 tests) - 质检逻辑、乱码检测
 
 运行测试：
 
