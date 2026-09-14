@@ -33,8 +33,9 @@ def _link(label: str, target: Path, base: Path) -> str:
 
 
 def _row(record: Record, layout: Layout, base: Path) -> str:
-    source = layout.source_path(PurePosixPath(record.rel))
-    source_cell = _link(record.rel, source, base)
+    # Show source path as plain text (not clickable) so INDEX works standalone
+    # when the .ai-context mirror is copied without the corpus
+    source_cell = f"`{record.rel}`"
     if record.text_rel:
         text_cell = _link("文本", layout.from_meta_rel(record.text_rel), base)
     else:

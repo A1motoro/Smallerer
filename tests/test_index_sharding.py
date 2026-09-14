@@ -97,3 +97,41 @@ def test_index_no_sharding_below_threshold(tmp_path: Path):
     # 不应该创建 index/ 分片目录
     shard_dir = cfg.out / "index"
     assert not shard_dir.exists()
+
+
+def test_index_source_paths_as_plain_text(tmp_path: Path):
+    """Section 9.9 acceptance: source file paths should be plain text (not clickable links)
+    so INDEX remains usable when .ai-context mirror is copied standalone without corpus."""
+    root = tmp_path / "corpus"
+    root.mkdir()
+    
+    # Create test files
+    test_file = root / "test.pdf"
+    test_file.write_bytes(b"%PDF-1.4\nfake pdf")
+    
+    subdir = root / "sub"
+    subdir.mkdir()
+    nested_file = subdir / "nested.txt"
+    nested_file.write_text("content", encoding="utf-8")
+    
+    # Build
+    cfg = Config(root=root, mode=Mode.MIRROR, jobs=1, ocr=OcrMode.NEVER).normalized()
+    build(cfg)
+    
+    # Check INDEX.md
+    index_path = cfg.out / "INDEX.md"
+    assert index_path.is_file()
+    index_content = index_path.read_text("utf-8")
+    
+    # Source paths should be code-formatted plain text, not markdown links
+    # Should contain: `test.pdf` and `sub/nested.txt`
+    assert "`test.pdf`" in index_content
+    assert "`sub/nested.txt`" in index_content
+    
+    # Should NOT contain clickable links to source files like [test.pdf](../corpus/test.pdf)
+    # (the ../corpus/ path would break when .ai-context is copied alone)
+    assert "](../corpus/" not in index_content
+    assert "[test.pdf](" not in index_content
+    
+    # Text sidecar links should still work (they're inside the mirror)
+    assert "[文本]" in index_content or "文本" in index_content
