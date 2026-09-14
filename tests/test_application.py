@@ -54,7 +54,7 @@ def test_mirror_build_and_idempotency(tmp_path: Path):
 def test_in_place_second_run_does_not_ingest_artifacts(tmp_path: Path):
     root = copy_corpus(tmp_path)
     cfg = Config(root=root, mode=Mode.IN_PLACE, jobs=1, ocr=OcrMode.NEVER).normalized()
-    first = build(cfg)
+    build(cfg)
     generated = root / "text.pdf.md"
     assert generated.is_file()
     before = {p.relative_to(root) for p in root.rglob("*") if p.is_file()}
@@ -107,51 +107,51 @@ def test_manifest_records_pipeline(tmp_path: Path):
 def test_mixed_pdf_identifies_pages_needing_ocr(tmp_path: Path):
     """spec §5.5, §9.3: 混合 PDF 只 OCR 文字层 < 30 字符的页，其他页用文字层。"""
     root = copy_corpus(tmp_path)
-    
+
     # 使用 mock OCR 后端
     from unittest.mock import Mock
     from smallerer.ocr.base import TextBlock
-    
+
     mock_backend = Mock()
     mock_backend.name = "mock-ocr"
     mock_backend.recognize.return_value = [
         TextBlock(text="Mocked OCR text from scan page", confidence=0.9, y0=0.1, y1=0.2)
     ]
-    
+
     from unittest.mock import patch
     with patch("smallerer.ocr.service.get_backend", return_value=mock_backend):
         cfg = Config(root=root, mode=Mode.MIRROR, jobs=1, ocr=OcrMode.AUTO).normalized()
         report = build(cfg)
-        
+
         # 找到 mixed.pdf 的记录
         mixed_record = next((r for r in report.records if r.rel == "mixed.pdf"), None)
         assert mixed_record is not None
-        
+
         # 检查文字层类型应该是 mixed（部分页有文字，部分页需要 OCR）
         assert mixed_record.text_layer == "mixed"
-        
+
         # 验证 OCR 信息
         assert mixed_record.ocr is not None
         assert "pages" in mixed_record.ocr
         ocr_pages = mixed_record.ocr["pages"]
-        
+
         # mixed.pdf 第 2 页是纯图片，应该被 OCR（页号为 2）
         assert 2 in ocr_pages, f"第 2 页（纯图片）应该被 OCR，实际 ocr.pages={ocr_pages}"
-        
+
         # 第 1 和第 3 页有文字层，不应该被 OCR
-        assert 1 not in ocr_pages, f"第 1 页有文字层，不应该被 OCR"
-        assert 3 not in ocr_pages, f"第 3 页有文字层，不应该被 OCR"
-        
+        assert 1 not in ocr_pages, "第 1 页有文字层，不应该被 OCR"
+        assert 3 not in ocr_pages, "第 3 页有文字层，不应该被 OCR"
+
         # 检查生成的文本文件
         text_file = cfg.out / "text" / "mixed.pdf.md"
         assert text_file.is_file()
         content = text_file.read_text("utf-8")
-        
+
         # 应该包含三个页标记
         assert "## Page 1" in content
         assert "## Page 2" in content
         assert "## Page 3" in content
-        
+
         # 第 2 页应该标记为 OCR
         assert "<!-- page:2 ocr -->" in content
 
@@ -161,13 +161,13 @@ def test_trivial_image_is_skipped(tmp_path: Path):
     root = copy_corpus(tmp_path)
     cfg = Config(root=root, mode=Mode.MIRROR, jobs=1, ocr=OcrMode.NEVER).normalized()
     report = build(cfg)
-    
+
     # tiny.png 应该被跳过
     tiny_record = next((r for r in report.records if r.rel == "tiny.png"), None)
     assert tiny_record is not None
     assert tiny_record.status == "skipped"
     assert tiny_record.skip_reason == "trivial_image"
-    
+
     # 不应该生成文本文件
     text_file = cfg.out / "text" / "tiny.png.md"
     assert not text_file.exists()
@@ -178,12 +178,12 @@ def test_mirror_mode_copies_plaintext_files(tmp_path: Path):
     root = copy_corpus(tmp_path)
     cfg = Config(root=root, mode=Mode.MIRROR, jobs=1, ocr=OcrMode.NEVER).normalized()
     build(cfg)
-    
+
     # 纯文本文件应该被复制到 text/ 目录
     text_copy = cfg.out / "text" / "notes.txt"
     assert text_copy.is_file()
     assert text_copy.read_text("utf-8") == "Already plain text.\n"
-    
+
     # 原文件不应该被修改
     assert root.joinpath("notes.txt").read_text("utf-8") == "Already plain text.\n"
 
@@ -193,13 +193,13 @@ def test_in_place_mode_does_not_copy_plaintext_files(tmp_path: Path):
     root = copy_corpus(tmp_path)
     cfg = Config(root=root, mode=Mode.IN_PLACE, jobs=1, ocr=OcrMode.NEVER).normalized()
     build(cfg)
-    
+
     # 不应该生成 notes.txt.md
     assert not root.joinpath("notes.txt.md").exists()
-    
+
     # 原文件不应该被修改
     assert root.joinpath("notes.txt").read_text("utf-8") == "Already plain text.\n"
-    
+
     # 但应该在 MANIFEST 中登记
     manifest = Manifest.load(cfg.out / "MANIFEST.json")
     assert "notes.txt" in manifest.files

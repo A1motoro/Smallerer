@@ -54,7 +54,7 @@ def strip_running_heads(pages: list[Page], keep: bool = False) -> list[str]:
     if keep or len(pages) < RUNNING_HEAD_MIN_REPEATS:
         return []
 
-    with_coords = [p for p in pages if p.height and any(l.y0 is not None for l in p.lines)]
+    with_coords = [p for p in pages if p.height and any(line.y0 is not None for line in p.lines)]
     use_coords = len(with_coords) == len(pages)
     threshold = (
         RUNNING_HEAD_MIN_REPEATS
@@ -99,7 +99,7 @@ def _in_band(line: Line, page: Page) -> bool:
 
 def merge_soft_wraps(lines: list[str]) -> str:
     """第 2 步：软换行合并。规则顺序即 spec 中的判断顺序。"""
-    lengths = [len(l.strip()) for l in lines if l.strip()]
+    lengths = [len(line.strip()) for line in lines if line.strip()]
     median = statistics.median(lengths) if lengths else 0.0
     short_cut = median * SHORT_LINE_RATIO
 

@@ -8,7 +8,7 @@ from pathlib import Path
 from ..config import CACHE_DIR_NAME, Config, OcrMode
 from ..model import Document, ExtractError, Kind, Line
 from . import get_backend, unavailable_reason
-from .base import OcrBackend, TextBlock
+from .base import OcrBackend
 from .cache import OcrCache
 
 MAX_PIXELS = 4000

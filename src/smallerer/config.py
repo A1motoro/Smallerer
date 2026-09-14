@@ -68,7 +68,7 @@ def default_jobs() -> int:
 
 def load_toml_config(path: Path) -> dict:
     """加载 TOML 配置文件，不存在返回空字典，格式错误时抛出异常。
-    
+
     spec §2: 失败可见。Bad TOML 必须明确报错，不能静默当空配置。
     """
     if not path.is_file():
@@ -84,11 +84,11 @@ def load_toml_config(path: Path) -> dict:
 
 def merge_config_sources(root: Path, cli_overrides: dict) -> dict:
     """按优先级合并配置：命令行 > <root>/.smlr.toml > ~/.config/smlr/config.toml > 默认。
-    
+
     spec §4: 配置优先级明确。配置文件全部可选，工具不主动创建。
     """
     result = {}
-    
+
     # 最低优先级：全局配置
     global_config = Path.home() / ".config" / "smlr" / "config.toml"
     global_data = load_toml_config(global_config)
@@ -97,7 +97,7 @@ def merge_config_sources(root: Path, cli_overrides: dict) -> dict:
         result.update(global_data["build"])
     else:
         result.update(global_data)
-    
+
     # 中等优先级：项目配置
     project_config = root / ".smlr.toml"
     project_data = load_toml_config(project_config)
@@ -105,10 +105,10 @@ def merge_config_sources(root: Path, cli_overrides: dict) -> dict:
         result.update(project_data["build"])
     else:
         result.update(project_data)
-    
+
     # 最高优先级：命令行覆盖
     result.update({k: v for k, v in cli_overrides.items() if v is not None})
-    
+
     return result
 
 
